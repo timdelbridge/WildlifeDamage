@@ -305,38 +305,40 @@
 
       // ============================================================
       // POPUP TEMPLATE
-      // Dynamically builds a table of all field values for any
-      // clicked survey point.
+      // Shows only the three key fields for a clicked survey point:
+      // animal, estimated count, and date of damage.
+      //
+      // The date field is stored as a Unix timestamp (milliseconds
+      // since Jan 1 1970). new Date(ms).toLocaleDateString() converts
+      // it to a human-readable string like "2/14/2026".
       // ============================================================
       const popupTemplate = {
-        title: "Survey Record",
+        title: "Damage Report",
         content: function(feature) {
           const attrs = feature.graphic.attributes;
 
-          let html = `
-            <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-              <tr style="background:#2d6a4f; color:white;">
-                <th style="padding:5px 8px; text-align:left;">Field</th>
-                <th style="padding:5px 8px; text-align:left;">Value</th>
-              </tr>`;
+          const animal = attrs["what_kind_of_animal_is_doing_da"] || "(not recorded)";
+          const count  = attrs["estimated_number_of_animals"]     || "(not recorded)";
 
-          let rowIndex = 0;
-          for (const key in attrs) {
-            if (key.startsWith("__")) continue;
-            const rowBg = rowIndex % 2 === 0 ? "#f4f4f4" : "#ffffff";
-            const val = (attrs[key] !== null && attrs[key] !== undefined)
-                        ? attrs[key]
-                        : "<em style='color:#aaa;'>(empty)</em>";
-            html += `
-              <tr style="background:${rowBg};">
-                <td style="padding:5px 8px; font-weight:bold; color:#1b4332; white-space:nowrap;">${key}</td>
-                <td style="padding:5px 8px; word-break:break-word;">${val}</td>
-              </tr>`;
-            rowIndex++;
-          }
+          // Date comes back as a numeric timestamp — convert to readable format
+          const rawDate = attrs["date_of_damage_or_is_this_date"];
+          const date = rawDate ? new Date(rawDate).toLocaleDateString() : "(not recorded)";
 
-          html += "</table>";
-          return html;
+          return `
+            <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+              <tr style="background:#f4f4f4;">
+                <td style="padding:8px 10px; font-weight:bold; color:#1b4332; width:45%;">Animal</td>
+                <td style="padding:8px 10px;">${animal}</td>
+              </tr>
+              <tr style="background:#ffffff;">
+                <td style="padding:8px 10px; font-weight:bold; color:#1b4332;">Est. # of animals</td>
+                <td style="padding:8px 10px;">${count}</td>
+              </tr>
+              <tr style="background:#f4f4f4;">
+                <td style="padding:8px 10px; font-weight:bold; color:#1b4332;">Date of damage</td>
+                <td style="padding:8px 10px;">${date}</td>
+              </tr>
+            </table>`;
         }
       };
 
