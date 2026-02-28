@@ -132,6 +132,59 @@
     #viewDiv {
       flex: 1;
       width: 100%;
+      position: relative;
+    }
+
+    /* --- Info overlay box --- */
+    #info-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -60%);
+      z-index: 10;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      width: 340px;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+
+    #info-overlay-header {
+      background: #2d6a4f;
+      color: white;
+      padding: 12px 16px;
+      font-size: 0.95rem;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #info-overlay-body {
+      padding: 16px;
+      font-size: 0.88rem;
+      color: #222;
+      line-height: 1.55;
+    }
+
+    #info-overlay-footer {
+      padding: 10px 16px 14px;
+      text-align: right;
+    }
+
+    #info-dismiss-btn {
+      background: #2d6a4f;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 7px 18px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    #info-dismiss-btn:hover {
+      background: #40916c;
     }
   </style>
 </head>
@@ -172,7 +225,7 @@
        href="https://survey123.arcgis.com/share/1033be50d6ed4dd2b05cf8cef0b50d63"
        target="_blank"
        rel="noopener noreferrer">
-      &#128203; Take Survey
+      &#128203; Enter new Damage Report
     </a>
   </div>
 
@@ -180,11 +233,28 @@
   <div id="status-bar">
     <span id="record-count">Loading...</span>
     <span id="active-filter">No filter active — showing all animals</span>
-    <span id="refresh-timer">Next refresh in: 30s</span>
   </div>
 
   <!-- MAP CONTAINER -->
-  <div id="viewDiv"></div>
+  <div id="viewDiv">
+
+    <!-- INFO OVERLAY — shown on page load, dismissed with button -->
+    <div id="info-overlay">
+      <div id="info-overlay-header">
+        &#127807; Wildlife Damage Report Map
+      </div>
+      <div id="info-overlay-body">
+        This map reflects the locations of existing crop damage reports.
+        Enter a new report with the button in the top right.
+      </div>
+      <div id="info-overlay-footer">
+        <button id="info-dismiss-btn" onclick="document.getElementById('info-overlay').style.display='none'">
+          Got it
+        </button>
+      </div>
+    </div>
+
+  </div>
 
 
   <script>
@@ -283,13 +353,52 @@
           type: "simple",
           symbol: {
             type: "simple-marker",
-            color: [45, 106, 79, 0.85],
-            outline: { color: [255, 255, 255, 0.9], width: 1.5 },
-            size: "11px"
+            color: [255, 100, 0, 0.92],   // bright orange — easy to see
+            outline: { color: [255, 255, 255, 1], width: 2 },
+            size: "16px"                  // larger than default
           }
         }
       });
 
+      // ============================================================
+      // OREGON COUNTY BOUNDARIES
+      // Uses the ESRI USA Counties (Generalized) public feature service,
+      // filtered to Oregon only. Rendered as outlines with no fill so
+      // the basemap and survey points remain visible underneath.
+      // popupEnabled: false keeps clicks clean — only survey points
+      // open a popup.
+      // ============================================================
+      const countyLayer = new FeatureLayer({
+        url: "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Counties_Generalized/FeatureServer/0",
+        definitionExpression: "STATE_NAME = 'Oregon'",
+        title: "Oregon Counties",
+        popupEnabled: false,
+        renderer: {
+          type: "simple",
+          symbol: {
+            type: "simple-fill",
+            color: [0, 0, 0, 0],          // fully transparent fill
+            outline: {
+              color: [80, 80, 80, 0.75],  // medium-grey boundary line
+              width: 1
+            }
+          }
+        },
+        labelingInfo: [{
+          labelExpressionInfo: { expression: "$feature.NAME" },
+          symbol: {
+            type: "text",
+            color: [60, 60, 60, 1],
+            haloColor: [255, 255, 255, 0.8],
+            haloSize: 1.5,
+            font: { size: 9, family: "Arial" }
+          },
+          minScale: 0         // show labels at all zoom levels
+        }]
+      });
+
+      // Add county layer first so it renders below the survey points
+      map.add(countyLayer);
       map.add(featureLayer);
 
       // ============================================================
@@ -343,7 +452,7 @@
       //
       // SQL logic:
       //   No animals selected → show everything (no filter)
-      //   One animal selected  → kind_of_animal_doing_damage LIKE '%elk%'
+      //   One animal selected  → what_kind_of_animal_is_doing_da LIKE '%elk%'
       //   Multiple selected    → ... LIKE '%elk%' OR ... LIKE '%deer%'
       //
       // LIKE '%elk%' uses wildcards (%) so it matches whether the
@@ -375,7 +484,7 @@
         } else {
           // Build one SQL clause per selected animal, joined with OR
           // e.g.: kind_of_animal_doing_damage LIKE '%elk%' OR ... LIKE '%deer%'
-          const field = "kind_of_animal_doing_damage";
+          const field = "what_kind_of_animal_is_doing_da";
           const clauses = [...activeAnimals].map(a => `${field} LIKE '%${a}%'`);
           featureLayer.definitionExpression = clauses.join(" OR ");
 
@@ -409,6 +518,8 @@
 
       // ============================================================
       // AUTO-REFRESH EVERY 30 SECONDS
+      // Silently refreshes the layer in the background; no countdown
+      // is shown in the UI.
       // ============================================================
       const REFRESH_SECONDS = 30;
       let countdown = REFRESH_SECONDS;
@@ -417,17 +528,12 @@
         featureLayer.refresh();
         countdown = REFRESH_SECONDS;
         updateRecordCount();
-        document.getElementById("refresh-timer").textContent =
-          `Next refresh in: ${countdown}s`;
       };
 
       setInterval(function() {
         countdown--;
         if (countdown <= 0) {
           window.refreshLayer();
-        } else {
-          document.getElementById("refresh-timer").textContent =
-            `Next refresh in: ${countdown}s`;
         }
       }, 1000);
 
