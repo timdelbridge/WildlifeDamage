@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Wildlife Damage Survey Map</title>
+
+  <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
+  <script src="https://js.arcgis.com/4.29/"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* --- Controls bar --- */
+    #controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 16px;
+      background: #2d6a4f;
+      color: white;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #controls h1 {
+      font-size: 1rem;
+      font-weight: bold;
+      margin-right: 6px;
+      white-space: nowrap;
+    }
+
+    /* Label before the animal buttons */
+    .filter-label {
+      font-size: 0.8rem;
+      opacity: 0.85;
+      white-space: nowrap;
+    }
+
+    /*
+      Animal filter toggle buttons.
+      Default state: semi-transparent, unselected.
+      .active state: bright white background with green text = selected.
+      Clicking toggles an animal in/out of the active filter.
+    */
+    .animal-btn {
+      padding: 5px 11px;
+      background: rgba(255,255,255,0.15);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.5);
+      border-radius: 20px;     /* Pill shape */
+      cursor: pointer;
+      font-size: 0.82rem;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+      user-select: none;
+    }
+
+    .animal-btn:hover {
+      background: rgba(255,255,255,0.3);
+    }
+
+    /* Selected / active state */
+    .animal-btn.active {
+      background: white;
+      color: #1b4332;
+      font-weight: bold;
+      border-color: white;
+    }
+
+    /* Regular action buttons (Clear, Refresh) */
+    .action-btn {
+      padding: 5px 11px;
+      background: #40916c;
+      color: white;
+      border: 1px solid rgba(255,255,255,0.5);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    .action-btn:hover {
+      background: #52b788;
+    }
+
+    /*
+      "Take Survey" link — styled to look like a button but
+      is actually an <a> tag that opens in a new browser tab.
+    */
+    .survey-link {
+      padding: 5px 11px;
+      background: #d8f3dc;
+      color: #1b4332;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.82rem;
+      font-weight: bold;
+      text-decoration: none;
+      white-space: nowrap;
+      margin-left: auto;      /* Push to the right edge of the bar */
+    }
+
+    .survey-link:hover {
+      background: white;
+    }
+
+    /* --- Status bar --- */
+    #status-bar {
+      background: #1b4332;
+      color: #d8f3dc;
+      padding: 4px 16px;
+      font-size: 0.78rem;
+      display: flex;
+      gap: 20px;
+      flex-shrink: 0;
+    }
+
+    /* --- Map container --- */
+    #viewDiv {
+      flex: 1;
+      width: 100%;
+      position: relative;
+    }
+
+    /* --- Info overlay box --- */
+    #info-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -60%);
+      z-index: 10;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      width: 340px;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+
+    #info-overlay-header {
+      background: #2d6a4f;
+      color: white;
+      padding: 12px 16px;
+      font-size: 0.95rem;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #info-overlay-body {
+      padding: 16px;
+      font-size: 0.88rem;
+      color: #222;
+      line-height: 1.55;
+    }
+
+    #info-overlay-footer {
+      padding: 10px 16px 14px;
+      text-align: right;
+    }
+
+    #info-dismiss-btn {
+      background: #2d6a4f;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 7px 18px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    #info-dismiss-btn:hover {
+      background: #40916c;
+    }
+  </style>
+</head>
+<body>
+
+  <!--
+    CONTROLS BAR
+    Animal toggle buttons replace the old text-search/dropdown.
+    Click one or more animals to filter the map to those species.
+    "Clear Filter" deselects all and shows every record again.
+    "Take Survey" opens the Survey123 form in a new tab.
+  -->
+  <div id="controls">
+    <h1>Wildlife Damage Survey Map</h1>
+
+    <span class="filter-label">Filter by animal:</span>
+
+    <!--
+      Each button has data-animal set to the exact value that
+      will be stored in the kind_of_animal_doing_damage field.
+      The applyAnimalFilter() function reads these values.
+    -->
+    <button class="animal-btn" data-animal="elk"     onclick="toggleAnimal(this)">Elk</button>
+    <button class="animal-btn" data-animal="deer"    onclick="toggleAnimal(this)">Deer</button>
+    <button class="animal-btn" data-animal="turkeys" onclick="toggleAnimal(this)">Turkeys</button>
+    <button class="animal-btn" data-animal="voles"   onclick="toggleAnimal(this)">Voles</button>
+    <button class="animal-btn" data-animal="pigs"    onclick="toggleAnimal(this)">Pigs</button>
+
+    <button class="action-btn" onclick="clearFilter()">Clear Filter</button>
+    <button class="action-btn" onclick="refreshLayer()">&#8635; Refresh</button>
+
+    <!--
+      Opens the Survey123 data entry form in a new tab.
+      target="_blank" means it opens in a new browser tab
+      without closing this map page.
+    -->
+    <a class="survey-link"
+       href="https://survey123.arcgis.com/share/1033be50d6ed4dd2b05cf8cef0b50d63"
+       target="_blank"
+       rel="noopener noreferrer">
+      &#128203; Enter new Damage Report
+    </a>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div id="status-bar">
+    <span id="record-count">Loading...</span>
+    <span id="active-filter">No filter active — showing all animals</span>
+  </div>
+
+  <!-- MAP CONTAINER -->
+  <div id="viewDiv">
+
+    <!-- INFO OVERLAY — shown on page load, dismissed with button -->
+    <div id="info-overlay">
+      <div id="info-overlay-header">
+        &#127807; Wildlife Damage Report Map
+      </div>
+      <div id="info-overlay-body">
+        This map reflects the locations of existing crop damage reports.
+        Enter a new report with the button in the top right.
+      </div>
+      <div id="info-overlay-footer">
+        <button id="info-dismiss-btn" onclick="document.getElementById('info-overlay').style.display='none'">
+          Got it
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/MapView",
+      "esri/layers/FeatureLayer",
+      "esri/widgets/Legend",
+      "esri/widgets/ScaleBar",
+      "esri/widgets/Home",
+      "esri/widgets/Expand",
+      "esri/widgets/LayerList"
+    ], function(
+      Map, MapView, FeatureLayer, Legend, ScaleBar, Home, Expand, LayerList
+    ) {
+
+      // ============================================================
+      // OREGON EXTENT
+      // These coordinates define a bounding box around Oregon.
+      // xmin/xmax = west/east longitude, ymin/ymax = south/north latitude.
+      // wkid: 4326 means standard GPS lat/lon coordinates.
+      // ============================================================
+      const oregonExtent = {
+        type: "extent",
+        xmin: -124.7,
+        ymin: 41.9,
+        xmax: -116.4,
+        ymax: 46.3,
+        spatialReference: { wkid: 4326 }
+      };
+
+      const map = new Map({ basemap: "topo-vector" });
+
+      const view = new MapView({
+        container: "viewDiv",
+        map: map,
+
+        // Start the map zoomed to Oregon
+        extent: oregonExtent,
+
+        // Constrain panning and zooming so the user stays near Oregon.
+        // minZoom: 6 prevents zooming out to the full US or world.
+        constraints: {
+          geometry: oregonExtent,
+          minZoom: 6
+        }
+      });
+
+      // ============================================================
+      // POPUP TEMPLATE
+      // Dynamically builds a table of all field values for any
+      // clicked survey point.
+      // ============================================================
+      const popupTemplate = {
+        title: "Survey Record",
+        content: function(feature) {
+          const attrs = feature.graphic.attributes;
+
+          let html = `
+            <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+              <tr style="background:#2d6a4f; color:white;">
+                <th style="padding:5px 8px; text-align:left;">Field</th>
+                <th style="padding:5px 8px; text-align:left;">Value</th>
+              </tr>`;
+
+          let rowIndex = 0;
+          for (const key in attrs) {
+            if (key.startsWith("__")) continue;
+            const rowBg = rowIndex % 2 === 0 ? "#f4f4f4" : "#ffffff";
+            const val = (attrs[key] !== null && attrs[key] !== undefined)
+                        ? attrs[key]
+                        : "<em style='color:#aaa;'>(empty)</em>";
+            html += `
+              <tr style="background:${rowBg};">
+                <td style="padding:5px 8px; font-weight:bold; color:#1b4332; white-space:nowrap;">${key}</td>
+                <td style="padding:5px 8px; word-break:break-word;">${val}</td>
+              </tr>`;
+            rowIndex++;
+          }
+
+          html += "</table>";
+          return html;
+        }
+      };
+
+      // ============================================================
+      // FEATURE LAYER
+      // Connects to the Survey123 feature service.
+      // ============================================================
+      const featureLayer = new FeatureLayer({
+        url: "https://services1.arcgis.com/CD5mKowwN6nIaqd8/arcgis/rest/services/survey123_1033be50d6ed4dd2b05cf8cef0b50d63/FeatureServer/0",
+        outFields: ["*"],
+        popupTemplate: popupTemplate,
+        title: "Wildlife Damage Surveys",
+        renderer: {
+          type: "simple",
+          symbol: {
+            type: "simple-marker",
+            color: [255, 100, 0, 0.92],   // bright orange — easy to see
+            outline: { color: [255, 255, 255, 1], width: 2 },
+            size: "16px"                  // larger than default
+          }
+        }
+      });
+
+      // ============================================================
+      // OREGON COUNTY BOUNDARIES
+      // Uses the ESRI USA Counties (Generalized) public feature service,
+      // filtered to Oregon only. Rendered as outlines with no fill so
+      // the basemap and survey points remain visible underneath.
+      // popupEnabled: false keeps clicks clean — only survey points
+      // open a popup.
+      // ============================================================
+      const countyLayer = new FeatureLayer({
+        url: "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Counties_Generalized/FeatureServer/0",
+        definitionExpression: "STATE_NAME = 'Oregon'",
+        title: "Oregon Counties",
+        popupEnabled: false,
+        renderer: {
+          type: "simple",
+          symbol: {
+            type: "simple-fill",
+            color: [0, 0, 0, 0],          // fully transparent fill
+            outline: {
+              color: [80, 80, 80, 0.75],  // medium-grey boundary line
+              width: 1
+            }
+          }
+        },
+        labelingInfo: [{
+          labelExpressionInfo: { expression: "$feature.NAME" },
+          symbol: {
+            type: "text",
+            color: [60, 60, 60, 1],
+            haloColor: [255, 255, 255, 0.8],
+            haloSize: 1.5,
+            font: { size: 9, family: "Arial" }
+          },
+          minScale: 0         // show labels at all zoom levels
+        }]
+      });
+
+      // Add county layer first so it renders below the survey points
+      map.add(countyLayer);
+      map.add(featureLayer);
+
+      // ============================================================
+      // HOME WIDGET
+      // Configured to zoom back to Oregon (not just the data extent).
+      // ============================================================
+      view.when(function() {
+        const homeWidget = new Home({
+          view: view,
+          // Override the default "go home" behavior to use Oregon extent
+          goToOverride: function(v, opts) {
+            return v.goTo(oregonExtent);
+          }
+        });
+        view.ui.add(homeWidget, "top-left");
+
+        updateRecordCount();
+      });
+
+      // Scale bar
+      view.ui.add(new ScaleBar({ view: view, unit: "dual" }), "bottom-left");
+
+      // Legend (collapsible panel)
+      view.ui.add(
+        new Expand({
+          view: view,
+          content: new Legend({ view: view }),
+          expandIconClass: "esri-icon-legend",
+          expandTooltip: "Legend"
+        }),
+        "top-right"
+      );
+
+      // Layer list (collapsible panel)
+      view.ui.add(
+        new Expand({
+          view: view,
+          content: new LayerList({ view: view }),
+          expandIconClass: "esri-icon-layer-list",
+          expandTooltip: "Layers"
+        }),
+        "top-right"
+      );
+
+      // ============================================================
+      // ANIMAL FILTER LOGIC
+      //
+      // activeAnimals is a JavaScript Set — a collection of unique
+      // values. When the user clicks a button, we add or remove that
+      // animal from the Set, then rebuild the SQL filter.
+      //
+      // SQL logic:
+      //   No animals selected → show everything (no filter)
+      //   One animal selected  → what_kind_of_animal_is_doing_da LIKE '%elk%'
+      //   Multiple selected    → ... LIKE '%elk%' OR ... LIKE '%deer%'
+      //
+      // LIKE '%elk%' uses wildcards (%) so it matches whether the
+      // field stores "elk" alone or as part of a comma/space list
+      // (e.g. Survey123 select_multiple stores "elk deer").
+      // ============================================================
+      const activeAnimals = new Set();
+
+      window.toggleAnimal = function(btn) {
+        const animal = btn.dataset.animal; // reads data-animal="elk" etc.
+
+        if (activeAnimals.has(animal)) {
+          activeAnimals.delete(animal);   // Was on → turn off
+          btn.classList.remove("active");
+        } else {
+          activeAnimals.add(animal);      // Was off → turn on
+          btn.classList.add("active");
+        }
+
+        applyAnimalFilter();
+      };
+
+      function applyAnimalFilter() {
+        if (activeAnimals.size === 0) {
+          // No animals selected — remove filter and show everything
+          featureLayer.definitionExpression = null;
+          document.getElementById("active-filter").textContent =
+            "No filter active — showing all animals";
+        } else {
+          // Build one SQL clause per selected animal, joined with OR
+          // e.g.: kind_of_animal_doing_damage LIKE '%elk%' OR ... LIKE '%deer%'
+          const field = "what_kind_of_animal_is_doing_da";
+          const clauses = [...activeAnimals].map(a => `${field} LIKE '%${a}%'`);
+          featureLayer.definitionExpression = clauses.join(" OR ");
+
+          // Update status bar to show which animals are active
+          const names = [...activeAnimals].map(a => a.charAt(0).toUpperCase() + a.slice(1));
+          document.getElementById("active-filter").textContent =
+            `Filtered: ${names.join(", ")}`;
+        }
+
+        updateRecordCount();
+      }
+
+      window.clearFilter = function() {
+        activeAnimals.clear();
+        // Remove the .active class from all animal buttons
+        document.querySelectorAll(".animal-btn").forEach(b => b.classList.remove("active"));
+        applyAnimalFilter();
+      };
+
+      // ============================================================
+      // RECORD COUNT
+      // ============================================================
+      function updateRecordCount() {
+        featureLayer.queryFeatureCount().then(function(count) {
+          document.getElementById("record-count").textContent =
+            `Showing ${count.toLocaleString()} record${count !== 1 ? "s" : ""}`;
+        }).catch(function() {
+          document.getElementById("record-count").textContent = "Count unavailable";
+        });
+      }
+
+      // ============================================================
+      // AUTO-REFRESH EVERY 30 SECONDS
+      // Silently refreshes the layer in the background; no countdown
+      // is shown in the UI.
+      // ============================================================
+      const REFRESH_SECONDS = 30;
+      let countdown = REFRESH_SECONDS;
+
+      window.refreshLayer = function() {
+        featureLayer.refresh();
+        countdown = REFRESH_SECONDS;
+        updateRecordCount();
+      };
+
+      setInterval(function() {
+        countdown--;
+        if (countdown <= 0) {
+          window.refreshLayer();
+        }
+      }, 1000);
+
+    }); // end require
+  </script>
+</body>
+</html>
